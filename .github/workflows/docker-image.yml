@@ -15,14 +15,14 @@ jobs:
 
       - name: Build Docker image
         run: |
-          docker build -t **my-app:**<desired_tag> .  # Replace <desired_tag> with your choice
+          docker build -t my-app:latest . 
 
       - name: Push Docker image to GitHub Packages
         uses: actions/upload-docker-action@v5
         with:
           push: true
-          repository: RomNeedBoba/ToDoCloud  # Replace with your repository name
-          tags: <desired_tag>
+          repository: RomNeedBoba/ToDoCloud
+          tags: latest
 
   deploy:
     runs-on: ubuntu-latest
@@ -33,7 +33,7 @@ jobs:
 
       - name: Deploy to EC2
         run: |
-          ssh -i ${{ secrets.EC2_KEY }} ec2-user@52.24.235.49 'bash -s' < deploy.sh  # Replace deploy.sh with actual path
+          ssh -i ${{ secrets.EC2_KEY }} ec2-user@52.24.235.49 'bash -s' < deploy.sh
 
   test:
     runs-on: ubuntu-latest
@@ -45,7 +45,7 @@ jobs:
       - name: Run integration tests
         run: |
           # Command to run your integration tests
-          ./run-integration-tests.sh  # Replace with actual path
+          ./run-integration-tests.sh
 
   production:
     runs-on: ubuntu-latest
@@ -55,4 +55,4 @@ jobs:
     steps:
       - name: Deploy to production
         run: |
-          ssh -i ${{ secrets.EC2_KEY }} ec2-user@52.24.235.49 'bash -s' < production-deploy.sh  # Replace with actual path
+          ssh -i ${{ secrets.EC2_KEY }} ec2-user@52.24.235.49 'bash -s' < production-deploy.sh
