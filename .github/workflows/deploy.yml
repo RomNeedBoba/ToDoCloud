@@ -68,7 +68,7 @@ jobs:
             EOF
             # Build new Docker image
             echo "Building Docker image..."
-            sudo docker build -t cloud-computing-project:latest . || exit 1
+            sudo docker build -t cloud-computing-project:latest . || { echo "Docker build failed"; exit 1; }
             # Run new container
             echo "Starting new container..."
             sudo docker run -d \
