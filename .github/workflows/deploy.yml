@@ -31,11 +31,16 @@ jobs:
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa  # Use GitHub Secret for SSH Key
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts  # EC2 Host IP
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts  # EC2 Host IP from GitHub Secrets
         env:
           EC2_HOST: ${{ secrets.EC2_HOST }}  # EC2 Host fetched from GitHub Secrets
 
-      # Step 4: Deploy to EC2
+      # Step 4: Test SSH connection
+      - name: Test SSH connection
+        run: |
+          ssh -i ~/.ssh/id_rsa -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "echo 'SSH Connection successful!'"
+
+      # Step 5: Deploy to EC2
       - name: Deploy to EC2
         uses: appleboy/ssh-action@v0.1.10
         with:
@@ -43,29 +48,26 @@ jobs:
           username: ec2-user  # EC2 User (use ec2-user or your specific username)
           key: ${{ secrets.EC2_SSH_KEY }}  # SSH private key from GitHub Secrets
           script: |
-            # Verify Docker installation
-            if ! command -v docker &> /dev/null; then
-              echo "Docker is not installed. Installing..."
-              sudo yum install -y docker
-              sudo systemctl start docker
-              sudo systemctl enable docker
-            fi
-
             # Navigate to home directory
             cd /home/ec2-user
+
             # Gracefully stop the existing container if it exists
             if sudo docker ps -q -f name=brave_lumiere; then
               echo "Stopping existing container..."
               sudo docker stop brave_lumiere
               sudo docker rm brave_lumiere
             fi
+
             # Clean up unused images to free space
             sudo docker system prune -f
+
             # Remove old project directory
             sudo rm -rf cloud-computing-project
+
             # Clone the latest code
             git clone https://github.com/g3-cloud-computing-project/cloud-computing-project.git
             cd cloud-computing-project
+
             # Create .env file with environment variables
             cat > .env << EOF
             DB_HOST=${{ secrets.MYSQL_HOST }}
@@ -74,9 +76,11 @@ jobs:
             DB_NAME=${{ secrets.MYSQL_DATABASE }}
             PORT=3000
             EOF
+
             # Build new Docker image
             echo "Building Docker image..."
             sudo docker build -t cloud-computing-project:latest . || { echo "Docker build failed"; exit 1; }
+
             # Run new container
             echo "Starting new container..."
             sudo docker run -d \
@@ -89,15 +93,18 @@ jobs:
             -e DB_NAME="${{ secrets.MYSQL_DATABASE }}" \
             -e PORT=3000 \
             cloud-computing-project:latest
+
             # Verify container is running
             if ! sudo docker ps -q -f name=brave_lumiere; then
               echo "Container failed to start!"
               sudo docker logs brave_lumiere
               exit 1
             fi
+
             # Wait for application to start
             echo "Waiting for application to start..."
             sleep 10
+
             # Test application
             if curl -f http://localhost:80 >/dev/null 2>&1; then
               echo "Application is running successfully!"
@@ -106,6 +113,7 @@ jobs:
               sudo docker logs brave_lumiere
               exit 1
             fi
+
             # Test MySQL connection using Node.js inside the container
             echo "Testing MySQL connection..."
             sudo docker exec brave_lumiere sh -c 'node -e "const mysql=require('\''mysql2'\'');const conn=mysql.createConnection({host:process.env.DB_HOST,user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME});conn.connect((err)=>{if(err){console.error(err);process.exit(1)}else{console.log('\''MySQL connection successful'\'');process.exit(0)}})"' || {
