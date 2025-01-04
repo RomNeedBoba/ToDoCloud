@@ -43,6 +43,14 @@ jobs:
           username: ec2-user  # EC2 User (use ec2-user or your specific username)
           key: ${{ secrets.EC2_SSH_KEY }}  # SSH private key from GitHub Secrets
           script: |
+            # Verify Docker installation
+            if ! command -v docker &> /dev/null; then
+              echo "Docker is not installed. Installing..."
+              sudo yum install -y docker
+              sudo systemctl start docker
+              sudo systemctl enable docker
+            fi
+
             # Navigate to home directory
             cd /home/ec2-user
             # Gracefully stop the existing container if it exists
