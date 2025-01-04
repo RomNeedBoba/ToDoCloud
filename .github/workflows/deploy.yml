@@ -13,77 +13,75 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      # Step 1: Configure AWS Credentials
+      # Step 1: Checkout the repository
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      # Step 2: Set up AWS credentials
       - name: Configure AWS Credentials
         uses: aws-actions/configure-aws-credentials@v2
         with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-west-2  # Or your preferred AWS region
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}  # Use GitHub Secrets for AWS Access Key ID
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}  # Use GitHub Secrets for AWS Secret Access Key
+          aws-region: us-west-2
 
-      # Step 2: Set up SSH and connect to EC2
+      # Step 3: Set up SSH
       - name: Set up SSH
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.EC2_SSH_KEY }}" > ~/.ssh/id_rsa  # Use GitHub Secret for SSH Key
           chmod 600 ~/.ssh/id_rsa
-          ssh-keyscan -H ${EC2_HOST} >> ~/.ssh/known_hosts  # Fetch EC2's public key to avoid SSH prompt
+          ssh-keyscan -H ${{ secrets.EC2_HOST }} >> ~/.ssh/known_hosts  # EC2 Host IP
         env:
-          EC2_HOST: ${{ secrets.EC2_HOST }}
+          EC2_HOST: ${{ secrets.EC2_HOST }}  # EC2 Host fetched from GitHub Secrets
 
-      # Step 3: Deploy to EC2
+      # Step 4: Deploy to EC2
       - name: Deploy to EC2
-        uses: appleboy/ssh-action@master
-        env:
-          MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
-          MYSQL_USER: ${{ secrets.MYSQL_USER }}
-          MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
-          MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
+        uses: appleboy/ssh-action@v0.1.10
         with:
-          host: ${{ secrets.EC2_HOST }}
-          username: ec2-user
-          key: ${{ secrets.EC2_SSH_KEY }}
-          envs: MYSQL_HOST,MYSQL_USER,MYSQL_PASSWORD,MYSQL_DATABASE
+          host: ${{ secrets.EC2_HOST }}  # EC2 Host IP (from GitHub Secrets)
+          username: ec2-user  # EC2 User (use ec2-user or your specific username)
+          key: ${{ secrets.EC2_SSH_KEY }}  # SSH private key from GitHub Secrets
           script: |
             # Navigate to home directory
             cd /home/ec2-user
-            # Gracefully stop the existing container if running
+            # Gracefully stop the existing container if it exists
             if sudo docker ps -q -f name=brave_lumiere; then
               echo "Stopping existing container..."
               sudo docker stop brave_lumiere
               sudo docker rm brave_lumiere
             fi
-            # Clean up unused Docker images
+            # Clean up unused images to free space
             sudo docker system prune -f
             # Remove old project directory
             sudo rm -rf cloud-computing-project
             # Clone the latest code
             git clone https://github.com/g3-cloud-computing-project/cloud-computing-project.git
             cd cloud-computing-project
-            # Create .env file for database credentials
+            # Create .env file with environment variables
             cat > .env << EOF
-            DB_HOST=${MYSQL_HOST}
-            DB_USER=${MYSQL_USER}
-            DB_PASSWORD=${MYSQL_PASSWORD}
-            DB_NAME=${MYSQL_DATABASE}
+            DB_HOST=${{ secrets.MYSQL_HOST }}
+            DB_USER=${{ secrets.MYSQL_USER }}
+            DB_PASSWORD=${{ secrets.MYSQL_PASSWORD }}
+            DB_NAME=${{ secrets.MYSQL_DATABASE }}
             PORT=3000
             EOF
             # Build new Docker image
             echo "Building Docker image..."
             sudo docker build -t cloud-computing-project:latest . || exit 1
-            # Run new Docker container
+            # Run new container
             echo "Starting new container..."
             sudo docker run -d \
-              --name brave_lumiere \
-              --restart unless-stopped \
-              -p 80:3000 \
-              -e DB_HOST="${MYSQL_HOST}" \
-              -e DB_USER="${MYSQL_USER}" \
-              -e DB_PASSWORD="${MYSQL_PASSWORD}" \
-              -e DB_NAME="${MYSQL_DATABASE}" \
-              -e PORT=3000 \
-              cloud-computing-project:latest
-            # Verify that the container is running
+            --name brave_lumiere \
+            --restart unless-stopped \
+            -p 80:3000 \
+            -e DB_HOST="${{ secrets.MYSQL_HOST }}" \
+            -e DB_USER="${{ secrets.MYSQL_USER }}" \
+            -e DB_PASSWORD="${{ secrets.MYSQL_PASSWORD }}" \
+            -e DB_NAME="${{ secrets.MYSQL_DATABASE }}" \
+            -e PORT=3000 \
+            cloud-computing-project:latest
+            # Verify container is running
             if ! sudo docker ps -q -f name=brave_lumiere; then
               echo "Container failed to start!"
               sudo docker logs brave_lumiere
@@ -100,7 +98,7 @@ jobs:
               sudo docker logs brave_lumiere
               exit 1
             fi
-            # Test MySQL connection inside the container
+            # Test MySQL connection using Node.js inside the container
             echo "Testing MySQL connection..."
             sudo docker exec brave_lumiere sh -c 'node -e "const mysql=require('\''mysql2'\'');const conn=mysql.createConnection({host:process.env.DB_HOST,user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME});conn.connect((err)=>{if(err){console.error(err);process.exit(1)}else{console.log('\''MySQL connection successful'\'');process.exit(0)}})"' || {
               echo "MySQL connection failed!"
