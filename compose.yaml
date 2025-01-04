@@ -3,23 +3,27 @@ services:
     image: node:18-alpine
     command: sh -c "yarn install && yarn run dev"
     ports:
-      - 127.0.0.1:3000:3000
+      - 3000:3000  # Allow external access to port 3000
     working_dir: /app
     volumes:
       - ./:/app
     environment:
       MYSQL_HOST: mysql
-      MYSQL_USER: root
-      MYSQL_PASSWORD: secret
+      MYSQL_USER: RomNeedBoba
+      MYSQL_PASSWORD: Makerspace123!
       MYSQL_DB: todos
+    container_name: my_todo_app
+    mem_limit: 512m  # Limit memory usage to 512MB for the app container
 
   mysql:
     image: mysql:8.0
     volumes:
       - todo-mysql-data:/var/lib/mysql
     environment:
-      MYSQL_ROOT_PASSWORD: secret
+      MYSQL_ROOT_PASSWORD: Makerspace123!
       MYSQL_DATABASE: todos
+    container_name: my_mysql_container
+    mem_limit: 512m  # Limit memory usage to 512MB for the MySQL container
 
 volumes:
   todo-mysql-data:
