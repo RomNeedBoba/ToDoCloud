@@ -3,70 +3,72 @@ name: Deploy to EC2
 on:
   push:
     branches:
-      - main  # Trigger the pipeline when pushing to the main branch
+      - main
 
 jobs:
   deploy:
     runs-on: ubuntu-latest
 
     steps:
-    # Step 1: Checkout repository
+    # Step 1: Checkout the repository
     - name: Checkout repository
       uses: actions/checkout@v2
 
-    # Step 2: Deploy to EC2
-    - name: Deploy to EC2
+    # Step 2: Set up environment variables for MySQL and EC2
+    - name: Set up environment variables
       env:
         MYSQL_HOST: ${{ secrets.MYSQL_HOST }}
         MYSQL_USER: ${{ secrets.MYSQL_USER }}
         MYSQL_PASSWORD: ${{ secrets.MYSQL_PASSWORD }}
         MYSQL_DATABASE: ${{ secrets.MYSQL_DATABASE }}
-        EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}  # EC2 PEM file
+        EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
         EC2_USER: ec2-user
-        EC2_HOST: ${{ secrets.EC2_HOST }}  # EC2 Public IP or DNS
+        EC2_HOST: ${{ secrets.EC2_HOST }}
       run: |
-        # Start SSH agent
-        echo "$EC2_PRIVATE_KEY" > private-key.pem
+        # Step 3: Decode the private key and prepare for SSH connection
+        echo "$EC2_PRIVATE_KEY" | base64 --decode > private-key.pem
         chmod 600 private-key.pem
+
+        # Step 4: Start the SSH agent and add the private key
         eval $(ssh-agent -s)
         ssh-add private-key.pem
 
-        # SSH into EC2 and deploy the app
+        # Step 5: SSH into EC2 and deploy the app
         ssh -o StrictHostKeyChecking=no -i private-key.pem $EC2_USER@$EC2_HOST << 'EOF'
-          # Navigate to home directory
+          # Step 6: Navigate to home directory
           cd /home/ec2-user
 
-          # Clean up existing container if it exists
+          # Step 7: Gracefully stop the existing container if it exists
           if sudo docker ps -q -f name=my_todo_app; then
             echo "Stopping existing container..."
             sudo docker stop my_todo_app
             sudo docker rm my_todo_app
           fi
 
-          # Clean up unused Docker images to free space
+          # Step 8: Clean up unused images to free space
           sudo docker system prune -f
 
-          # Remove old project directory
+          # Step 9: Remove old project directory
           sudo rm -rf my_todo_app
 
-          # Clone the latest code
+          # Step 10: Clone the latest code
           git clone https://github.com/RomNeedBoba/ToDoCloud.git
           cd ToDoCloud
 
-          # Create .env file with environment variables
-          cat > .env << EOF
+          # Step 11: Create .env file with environment variables
+          cat > .env << EOF_ENV
           DB_HOST=${MYSQL_HOST}
           DB_USER=${MYSQL_USER}
           DB_PASSWORD=${MYSQL_PASSWORD}
           DB_NAME=${MYSQL_DATABASE}
           PORT=3000
-          EOF
+          EOF_ENV
 
-          # Build the Docker image directly on EC2
+          # Step 12: Build new Docker image
           echo "Building Docker image..."
           sudo docker build -t my_todo_app:latest . || { echo "Docker build failed"; exit 1; }
 
-          # Run the new Docker container
+          # Step 13: Run new container
           echo "Starting new container..."
           sudo docker run -d \
             --name my_todo_app \
@@ -79,18 +81,18 @@ jobs:
             -e PORT=3000 \
             my_todo_app:latest
 
-          # Verify the container is running
+          # Step 14: Verify container is running
           if ! sudo docker ps -q -f name=my_todo_app; then
             echo "Container failed to start!"
             sudo docker logs my_todo_app
             exit 1
           fi
 
-          # Wait for the application to start
+          # Step 15: Wait for application to start
           echo "Waiting for application to start..."
           sleep 10
 
-          # Test if the application is accessible
+          # Step 16: Test application
           if curl -f http://localhost:80 >/dev/null 2>&1; then
             echo "Application is running successfully!"
           else
@@ -99,7 +101,7 @@ jobs:
             exit 1
           fi
 
-          # Test MySQL connection using Node.js inside the container
+          # Step 17: Test MySQL connection using Node.js inside the container
           echo "Testing MySQL connection..."
           sudo docker exec my_todo_app sh -c 'node -e "const mysql=require('\''mysql2'\'');const conn=mysql.createConnection({host:process.env.DB_HOST,user:process.env.DB_USER,password:process.env.DB_PASSWORD,database:process.env.DB_NAME});conn.connect((err)=>{if(err){console.error(err);process.exit(1)}else{console.log('\''MySQL connection successful'\'');process.exit(0)}})"' || {
             echo "MySQL connection failed!"
