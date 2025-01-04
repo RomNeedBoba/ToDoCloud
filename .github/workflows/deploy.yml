@@ -8,82 +8,60 @@ on:
 jobs:
   deploy:
     runs-on: ubuntu-latest
-
     steps:
-    # Step 1: Checkout the repository
-    - name: Checkout repository
-      uses: actions/checkout@v2
+      # Step 1: Checkout the code
+      - name: Checkout code
+        uses: actions/checkout@v2
 
-    # Step 2: Set up AWS credentials for deployment
-    - name: Set up AWS credentials
-      uses: aws-actions/configure-aws-credentials@v1
-      with:
-        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-        aws-region: us-west-2
+      # Step 2: Set up SSH key
+      - name: Set up SSH key
+        env:
+          EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}  # Get the base64-encoded private key from GitHub secrets
+        run: |
+          # Decode the private key from base64 and save it to a file
+          echo "$EC2_PRIVATE_KEY" | base64 --decode > cloudRom.pem
+          chmod 600 cloudRom.pem
 
-    # Step 3: Set up SSH key and environment variables for EC2 access
-    - name: Set up SSH key
-      env:
-        EC2_PRIVATE_KEY: ${{ secrets.EC2_PRIVATE_KEY }}
-        EC2_HOST: ${{ secrets.EC2_HOST }}
-        EC2_USER: ec2-user
-      run: |
-        # Decode and set permissions on the private key
-        echo "$EC2_PRIVATE_KEY" | base64 --decode > cloudRom.pem
-        chmod 600 cloudRom.pem
+          # Start the SSH agent and add the private key
+          eval $(ssh-agent -s)
+          ssh-add cloudRom.pem
 
-    # Step 4: Deploy to EC2 instance via SSH
-    - name: Deploy to EC2 instance
-      env:
-        EC2_USER: ec2-user
-        EC2_HOST: ${{ secrets.EC2_HOST }}
-      run: |
-        # Start the SSH agent and add the private key
-        eval $(ssh-agent -s)
-        ssh-add cloudRom.pem
+      # Step 3: SSH into EC2 and deploy the app
+      - name: SSH into EC2 and deploy the app
+        env:
+          EC2_USER: ec2-user  # EC2 instance username
+          EC2_HOST: ${{ secrets.EC2_HOST }}  # EC2 instance public IP or hostname from GitHub secrets
+        run: |
+          # SSH into the EC2 instance and deploy the app
+          ssh -o StrictHostKeyChecking=no -i cloudRom.pem $EC2_USER@$EC2_HOST << 'EOF'
+            # Navigate to home directory
+            cd /home/ec2-user
 
-        # SSH into the EC2 instance and deploy the app
-        ssh -o StrictHostKeyChecking=no -i cloudRom.pem $EC2_USER@$EC2_HOST << 'EOF'
-          # Navigate to home directory
-          cd /home/ec2-user
+            # Stop and remove existing container if running
+            if sudo docker ps -q -f name=my_todo_app; then
+              sudo docker stop my_todo_app
+              sudo docker rm my_todo_app
+            fi
 
-          # Stop and remove existing container if running
-          if sudo docker ps -q -f name=my_todo_app; then
-            sudo docker stop my_todo_app
-            sudo docker rm my_todo_app
-          fi
+            # Clean up unused images to free space
+            sudo docker system prune -f
 
-          # Clean up unused images to free space
-          sudo docker system prune -f
+            # Clone the latest code
+            git clone https://github.com/***/ToDoCloud.git
+            cd ToDoCloud
 
-          # Clone the latest code
-          git clone https://github.com/RomNeedBoba/ToDoCloud.git
-          cd ToDoCloud
+            # Create .env file with environment variables
+            cat > .env << EOF_ENV
+            DB_HOST=***
+            DB_USER=***
+            DB_PASSWORD=***
+            DB_NAME=***
+            PORT=3000
+            EOF_ENV
 
-          # Create .env file with environment variables
-          cat > .env << EOF_ENV
-          DB_HOST=${{ secrets.MYSQL_HOST }}
-          DB_USER=${{ secrets.MYSQL_USER }}
-          DB_PASSWORD=${{ secrets.MYSQL_PASSWORD }}
-          DB_NAME=${{ secrets.MYSQL_DATABASE }}
-          PORT=3000
-          EOF_ENV
+            # Build the Docker image
+            sudo docker build -t my_todo_app:latest .
 
-          # Build the Docker image
-          sudo docker build -t my_todo_app:latest .
-
-          # Run the container
-          sudo docker run -d --name my_todo_app --restart unless-stopped -p 80:3000 -e DB_HOST="${{ secrets.MYSQL_HOST }}" -e DB_USER="${{ secrets.MYSQL_USER }}" -e DB_PASSWORD="${{ secrets.MYSQL_PASSWORD }}" -e DB_NAME="${{ secrets.MYSQL_DATABASE }}" -e PORT=3000 my_todo_app:latest
-        EOF
-
-    # Step 5: Post-deployment AWS configuration (Optional)
-    - name: Post-deployment AWS configuration (Optional)
-      run: |
-        # Example: clean up old resources, check status, or configure monitoring.
-        aws ec2 describe-instances --region ${{ secrets.AWS_REGION }}
-
-    # Step 6: Complete the job and notify status
-    - name: Complete the job
-      run: |
-        echo "Deployment completed successfully!"
+            # Run the container
+            sudo docker run -d --name my_todo_app --restart unless-stopped -p 80:3000 -e DB_HOST="***" -e DB_USER="***" -e DB_PASSWORD="***" -e DB_NAME="***" -e PORT=3000 my_todo_app:latest
+          EOF
